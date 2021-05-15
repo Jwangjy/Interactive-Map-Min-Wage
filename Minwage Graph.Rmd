@@ -1,0 +1,160 @@
+---
+title: "Interactive Minimum Wage Map"
+output: html_notebook
+---
+
+```{r}
+library(plotly)
+library(dplyr)
+library(readr)
+library(tidyverse)
+
+states = read.csv("states.csv")
+
+minwage_df = read.csv("minimum wage data.csv") %>%
+  rename(high_value = Department.Of.Labor.Cleaned.High.Value) %>%
+  mutate(State=toupper(State)) %>%
+  inner_join(states, by.x = State, by.y = State) %>%
+  select(Year, Code, State, Wage = high_value) %>%
+  mutate(hover = paste0(State, "\n$", Wage))
+```
+
+```{r}
+graph_properties <- list(
+  scope = 'usa',
+  showland = TRUE,
+  landcolor = toRGB("white"),
+  color = toRGB("white")
+)
+
+font = list(
+  family = "Helvetica",
+  size = 15,
+  color = "black"
+)
+
+label = list(
+  bgcolor = "#EEEEEE",
+  bordercolor = "transparent",
+  font = font
+)
+```
+
+
+```{r}
+minwage_graph = plot_geo(minwage_df, 
+                         locationmode = "USA-states", 
+                         frame = ~Year) %>%
+  add_trace(locations = ~Code,
+            z = ~Wage,
+            zmin = 0,
+            zmax = max(minwage_df$Wage),
+            color = ~Wage,
+            colorscale = "Viridis",
+            text = ~hover,
+            hoverinfo = 'text') %>%
+  layout(geo = graph_properties,
+         title = "Minimum Wage in the US\n1968 - 2020",
+         font = list(family = "Helvetica")) %>%
+  config(displayModeBar = FALSE) %>%
+  style(hoverlabel = label) %>%
+  colorbar(tickprefix = '$')
+minwage_graph
+```
+
+```{r}
+CPIFactor <- 258.66/34.80
+FMinWage2020Real <- 7.25/CPIFactor
+FMinWage1968Real <- 1.15
+CPIFactor
+FMinWage2020Real
+FWageChange <- (FMinWage2020Real - FMinWage1968Real)/FMinWage1968Real * 100
+FWageChange
+FWageScaled <- FMinWage1968Real * CPIFactor
+FWageScaled 
+```
+
+
+```{r}
+allwage_df = read.csv("minimum wage data.csv") %>%
+  rename(high_value = Department.Of.Labor.Cleaned.High.Value)
+relwage2020_df = subset(allwage_df, Year== 2020) %>%
+  mutate(State=toupper(State)) %>%
+  inner_join(states, by.x = State, by.y = State) %>%
+  select(Code, State, Wage = high_value, FedWage = Federal.Minimum.Wage)
+
+relwage2020_df$EffWage2020 <- apply(relwage2020_df[,3:4],1,max)
+relwage2020_df$EffWage2020Real <- relwage2020_df$EffWage2020 / CPIFactor
+
+relwage1968_df = subset(allwage_df, Year== 1968) %>%
+  mutate(State=toupper(State)) %>%
+  inner_join(states, by.x = State, by.y = State) %>%
+  select(Code, State, Wage = high_value, FedWage = Federal.Minimum.Wage)
+
+relwage1968_df$EffWage1968Real <- apply(relwage1968_df[,3:4],1,max)
+
+wagecomp_df <- merge(relwage2020_df,relwage1968_df,by=c("State","Code")) %>%
+  select(Code, State, EffWage1968Real, EffWage2020Real)
+
+wagecomp_df$Wage.Pct.Change = (wagecomp_df$EffWage2020Real - wagecomp_df$EffWage1968Real) / wagecomp_df$EffWage1968Real * 100
+
+wagecomp_df$wagechangeround <- lapply(wagecomp_df$Wage.Pct.Change, round, 2)
+wagecomp_df$hover2 = paste0(wagecomp_df$State, "\n", wagecomp_df$wagechangeround, "%")
+
+```
+
+```{r}
+relwage_graph = plot_geo(wagecomp_df, 
+                         locationmode = "USA-states" 
+                         ) %>%
+  add_trace(locations = ~Code,
+            z = ~Wage.Pct.Change,
+            zmin = min(wagecomp_df$Wage.Pct.Change),
+            zmax = max(wagecomp_df$Wage.Pct.Change),
+            color = ~Wage.Pct.Change,
+            colorscale = "Electric",
+            text = ~hover2,
+            hoverinfo = 'text') %>%
+  layout(geo = graph_properties,
+         title = "Percent Change in Real Minimum Wage in the US\nFrom 1968 To 2020",
+         font = list(family = "Helvetica")) %>%
+  config(displayModeBar = FALSE) %>%
+  style(hoverlabel = label) %>%
+  colorbar(ticksuffix = '%')
+relwage_graph
+```
+
+```{r}
+wagecomp_df$Relative.Wage = wagecomp_df$Wage.Pct.Change - FWageChange
+
+wagecomp_df$wagechangerelround <- lapply(wagecomp_df$Relative.Wage, round, 2)
+wagecomp_df$hover3 = paste0(wagecomp_df$State, "\n", wagecomp_df$wagechangerelround, "%")
+```
+
+```{r}
+relwage_graph2 = plot_geo(wagecomp_df, 
+                         locationmode = "USA-states" 
+                         ) %>%
+  add_trace(locations = ~Code,
+            z = ~Relative.Wage,
+            zmin = min(wagecomp_df$Relative.Wage),
+            zmax = max(wagecomp_df$Relative.Wage),
+            color = ~Relative.Wage,
+            colorscale = "Bluered",
+            text = ~hover3,
+            hoverinfo = 'text') %>%
+  layout(geo = graph_properties,
+         title = "Percent Change in Real State Minimum Wage \nRelative to Change in Real Federal Minimum Wage in the US\nFrom 1968 To 2020",
+         font = list(family = "Helvetica")) %>%
+  config(displayModeBar = FALSE) %>%
+  style(hoverlabel = label) %>%
+  colorbar(ticksuffix = '%')
+relwage_graph2
+```
+
+```{r}
+library(htmlwidgets)
+saveWidget(minwage_graph, "nominal_minwage.html")
+saveWidget(relwage_graph, "relchange_minwage.html")
+saveWidget(relwage_graph2, "relchangefed_minwage.html")
+```
